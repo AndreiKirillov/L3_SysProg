@@ -1,32 +1,37 @@
-# Prerequisites
-*.d
-
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
+.iik
+.pdb
+*.ilk
+*.pdb
+Kirillov_lab1_cpp/.vs/Kirillov_lab1_cpp/v16/.suo
+*.db
+*.db-shm
+*.db-wal
+*.opendb
+*.ipch
+*.tlog
+*.log
+*.idb
+*.vcxproj
+*.filters
+*.user
+*.cache
+*.txt
 *.exe
-*.out
-*.app
+*.obj
+*.pch
+*.res
+*.recipe
+*.rc
+*.config
+*.csproj
+Kirillov_lab1_sharp/obj/Debug/.NETFramework,Version=v4.7.2.AssemblyAttributes.cs
+*.settings
+*.dat
+Debug/FileMapping.dll
+*.dll
+*.exp
+.vs/Kirillov_lab1_sharp/v16/.suo
+*.dll
+.vs/Kirillov_lab1_sharp/v16/.suo
+*.resources
+*.resx
