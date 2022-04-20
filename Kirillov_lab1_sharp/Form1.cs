@@ -56,7 +56,7 @@ namespace Kirillov_lab1_sharp
                     return;
                 }
 
-                child_process = Process.Start("C:/repository/SysProg/L2_SysProg/Debug/Kirillov_lab1_cpp.exe");
+                child_process = Process.Start("C:/repository/SysProg/L3_SysProg/Debug/Kirillov_lab1_cpp.exe");
                 listbox_threads.Items.Add("Все потоки");
                 listbox_threads.Items.Add("Главный поток");
                 int nThreads = Convert.ToInt32(textBox_Nthreads.Text);

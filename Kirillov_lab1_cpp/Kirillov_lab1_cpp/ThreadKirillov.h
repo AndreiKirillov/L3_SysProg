@@ -7,10 +7,9 @@ class ThreadKirillov
 {
 private:
 	int _id;
-	HANDLE _thread;
-	HANDLE _control_event;
+	std::thread _thread;
+	HANDLE _finish_event;
 	HANDLE _receive_msg_event;
-	ParamsToThread _param;
 
 	ThreadKirillov(ThreadKirillov&);            // запрещаем копирование и присваивание
 	ThreadKirillov(const ThreadKirillov&);      // сделав конструкторы приватными
@@ -21,8 +20,10 @@ public:
 
 	void SetID(int id);
 	int GetID() const;
+	void SetFinishEvent(HANDLE fin_event);
+	void SetMessageEvent(HANDLE msg_event);
 	
-	bool Create(AFX_THREADPROC thread_function, ParamsToThread param);
+	void Init(std::thread&& some_thread) noexcept;
 	void Finish();
 
 	void Activate();

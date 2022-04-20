@@ -70,7 +70,7 @@ void ReceiveAndProcessMessage(bool thread_type, int thread_id = 0)
             cout << "Thread №" + to_string(thread_id) + " RECEIVED Message" << endl;
             console_mtx.unlock();
             ofstream outfile;
-            outfile.open("C:/repository/SysProg/L2_SysProg/OutputData/" + to_string(thread_id) + ".txt");
+            outfile.open("C:/repository/SysProg/L3_SysProg/OutputData/" + to_string(thread_id) + ".txt");
             if (outfile.is_open())
             {
                 outfile << "Message size: " << to_string(h.message_size) << endl;
@@ -81,17 +81,13 @@ void ReceiveAndProcessMessage(bool thread_type, int thread_id = 0)
     }
 }
 
-UINT ThreadFunction(LPVOID param)     // Функция для выполнения в потоке
+void ThreadFunction(int thread_id, HANDLE finish_event, HANDLE receive_msg_event) // Функция выполнения в потоке
 {
-    ParamsToThread* p = static_cast<ParamsToThread*>(param);
-    int thread_id = p->id;
-
     console_mtx.lock();
     cout << "Thread №" + to_string(thread_id) + " START" << endl;
     console_mtx.unlock();
 
-    HANDLE hControlEvents[2] = {p->receive_msg_event, p->control_event};
-
+    HANDLE hControlEvents[2] = {receive_msg_event, finish_event};
     while (true)
     {
         int event_index = WaitForMultipleObjects(2, hControlEvents, FALSE, INFINITE);     // Ждём сигнал от события
@@ -108,7 +104,7 @@ UINT ThreadFunction(LPVOID param)     // Функция для выполнен�
             lock_guard<mutex> lock_console(console_mtx);
             cout << "Thread №" + to_string(thread_id) + " IS CLOSED" << endl;
             SetEvent(confirm_finish_of_thread_event);
-            return 0;
+            return;
         }
         }
     }
@@ -165,7 +161,7 @@ int main()
 
             ThreadStorage threads_storage;
             SetEvent(confirm_event);   // подтвердение запуска приложения
-
+            
             while (true)
             {
                 int event_index = WaitForMultipleObjects(4, hControlEvents, FALSE, INFINITE) - WAIT_OBJECT_0; // Ждём событие от 
@@ -174,24 +170,24 @@ int main()
                 {
                 case 0:         // Событие создания потока
                 {
-                    std::unique_ptr<ThreadKirillov> new_thread = std::make_unique<ThreadKirillov>();
-                    
-                    ParamsToThread p;
-                    p.id = threads_storage.GetCount() + 1;
-                    p.control_event = CreateEventA(NULL, FALSE, FALSE, NULL);
-                    p.receive_msg_event = CreateEventA(NULL, FALSE, FALSE, NULL);
-                    if (p.control_event == NULL || p.receive_msg_event == NULL)
+                    std::unique_ptr<ThreadKirillov> new_thread = std::make_unique<ThreadKirillov>(); // Новый объект потока
+
+                    // параметры для потока
+                    int thread_id = threads_storage.GetCount() + 1;
+                    HANDLE thread_finish_event = CreateEventA(NULL, FALSE, FALSE, NULL);
+                    HANDLE thread_msg_event = CreateEventA(NULL, FALSE, FALSE, NULL);
+                    if (thread_finish_event == NULL || thread_msg_event == NULL)
                     {
-                        SetEvent(error_event);
+                        //SetEvent(error_event);
                         break;
                     }
 
-                    if (!new_thread->Create(ThreadFunction, p))
-                    {
-                        SetEvent(error_event);
-                        break;
-                    }
-                    
+                    // инициализируем объект реальным потоком
+                    new_thread->Init(std::thread(ThreadFunction, thread_id, thread_finish_event, thread_msg_event));
+                    new_thread->SetID(thread_id);
+                    new_thread->SetFinishEvent(thread_finish_event);
+                    new_thread->SetMessageEvent(thread_msg_event);
+
                     threads_storage.AddThread(std::move(new_thread));
                     SetEvent(confirm_event);
                 }
