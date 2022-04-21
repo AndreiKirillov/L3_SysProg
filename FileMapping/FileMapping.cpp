@@ -72,7 +72,8 @@ struct header
 	int message_size;
 };
 
-HANDLE hWritePipe, hReadPipe;
+HANDLE hWriteToChild, hChildRead;
+HANDLE hChildWrite, hReadFromChild;
 
 
 extern "C"
@@ -108,24 +109,52 @@ extern "C"
 			return false;
 
 		SECURITY_ATTRIBUTES sa = {sizeof(sa), NULL, TRUE };
-		if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0))
+
+		// Канал для передачи сообщений дочернему процессу
+		if (!CreatePipe(&hChildRead, &hWriteToChild, &sa, 0))
 			return false;
-		if (SetHandleInformation(hWritePipe, HANDLE_FLAG_INHERIT, 0) == 0) // запрещаем наследование хэндла записи
-			return false;                                               // дочерний процесс не сможет записывать в анонимный канал
+		if (!SetHandleInformation(hWriteToChild, HANDLE_FLAG_INHERIT, 0)) // запрещаем наследование хэндла записи
+		{                                                                 // дочерний процесс не сможет записывать в анонимный канал
+			CloseHandle(hChildRead);
+			CloseHandle(hWriteToChild);
+			return false;                                               
+		}
+
+		// Канал для получения сообщений от дочернего процесса
+		if (!CreatePipe(&hReadFromChild, &hChildWrite, &sa, 0))
+		{
+			CloseHandle(hChildRead);
+			CloseHandle(hWriteToChild);
+			return false;
+		}
+		if (!SetHandleInformation(hReadFromChild, HANDLE_FLAG_INHERIT, 0)) // запрещаем наследование хэндла чтения
+		{                                                                  // дочерний процесс не сможет читать свои же сообщения
+			CloseHandle(hChildRead);
+			CloseHandle(hWriteToChild);
+			CloseHandle(hReadFromChild);
+			CloseHandle(hChildWrite);
+			return false;                                               
+		}
 
 		STARTUPINFO si{ 0 };
 		si.cb = sizeof(si);
 		si.dwFlags = STARTF_USESTDHANDLES;
-		si.hStdInput = hReadPipe;
-		si.hStdOutput = 0;
-		si.hStdError = 0;
+		si.hStdInput = hChildRead;
+		si.hStdOutput = 0;//hChildWrite;
+		si.hStdError = hChildWrite;
 
 		PROCESS_INFORMATION pi;
 		if (!CreateProcessA(NULL, (LPSTR)process_name, &sa, NULL, TRUE, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi))
+		{
+			CloseHandle(hChildRead);
+			CloseHandle(hWriteToChild);
+			CloseHandle(hReadFromChild);
+			CloseHandle(hChildWrite);
 			return false;
+		}
 
-		if (!(CloseHandle(pi.hThread) && CloseHandle(pi.hProcess)))
-			return false;
+		CloseHandle(pi.hThread);
+		CloseHandle(pi.hProcess);
 
 		return true;
 	}
