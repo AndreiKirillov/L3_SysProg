@@ -72,6 +72,7 @@ struct header
 	int message_size;
 };
 
+HANDLE hWritePipe, hReadPipe;
 
 
 extern "C"
@@ -98,6 +99,34 @@ extern "C"
 		UnmapViewOfFile(buff);
 		CloseHandle(hFileMap);
 		CloseHandle(hFile);
+		return true;
+	}
+
+	__declspec(dllexport) bool __stdcall CreateProcessWithPipe(const char* process_name)
+	{
+		if (process_name == nullptr)
+			return false;
+
+		SECURITY_ATTRIBUTES sa = {sizeof(sa), NULL, TRUE };
+		if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0))
+			return false;
+		if (SetHandleInformation(hWritePipe, HANDLE_FLAG_INHERIT, 0) == 0) // запрещаем наследование хэндла записи
+			return false;                                               // дочерний процесс не сможет записывать в анонимный канал
+
+		STARTUPINFO si{ 0 };
+		si.cb = sizeof(si);
+		si.dwFlags = STARTF_USESTDHANDLES;
+		si.hStdInput = hReadPipe;
+		si.hStdOutput = 0;
+		si.hStdError = 0;
+
+		PROCESS_INFORMATION pi;
+		if (!CreateProcessA(NULL, (LPSTR)process_name, &sa, NULL, TRUE, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi))
+			return false;
+
+		if (!(CloseHandle(pi.hThread) && CloseHandle(pi.hProcess)))
+			return false;
+
 		return true;
 	}
 }

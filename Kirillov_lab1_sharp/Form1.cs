@@ -30,6 +30,8 @@ namespace Kirillov_lab1_sharp
         [DllImport("FileMapping.dll", EntryPoint = "_SendMappingMessage@8", CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
         unsafe private static extern bool SendMappingMessage(IntPtr message, ref header h);
 
+        [DllImport("FileMapping.dll", CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+        private static extern bool CreateProcessWithPipe(StringBuilder process_name);
 
         private Process child_process = null;
         private int count_threads = 0;
@@ -56,7 +58,16 @@ namespace Kirillov_lab1_sharp
                     return;
                 }
 
-                child_process = Process.Start("C:/repository/SysProg/L3_SysProg/Debug/Kirillov_lab1_cpp.exe");
+                // Запускаем консольное приложение с встроенным анонимным каналом
+                StringBuilder child_process_name = new StringBuilder("C:/repository/SysProg/L3_SysProg/Debug/Kirillov_lab1_cpp.exe");
+                if (!CreateProcessWithPipe(child_process_name))
+                {
+                    MessageBox.Show("Ошибка! Не удалось открыть консольное приложение!");
+                    return;
+                }
+                var temp_process = Process.GetProcessesByName("Kirillov_lab1_cpp");
+                child_process = temp_process[0];
+                
                 listbox_threads.Items.Add("Все потоки");
                 listbox_threads.Items.Add("Главный поток");
                 int nThreads = Convert.ToInt32(textBox_Nthreads.Text);
