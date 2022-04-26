@@ -158,34 +158,59 @@ extern "C"
 
 		return true;
 	}
+
+	// Функция отправки сообщения дочернему процессу
+	__declspec(dllexport) bool __stdcall WriteToChild(const char* message, header& h)
+	{
+		DWORD dwWrite;
+		if(!WriteFile(hWriteToChild, &h, sizeof(header), &dwWrite, nullptr))
+			return false;
+
+		if (!WriteFile(hWriteToChild, message, strlen(message), &dwWrite, nullptr))
+			return false;
+
+		return true;
+	}
+
+}
+
+// Функция чтения сообщения от родительского процесса
+__declspec(dllexport) string __stdcall ReadFromParent(header& h)
+{
+	HANDLE input_handle = GetStdHandle(STD_INPUT_HANDLE);
+	
+	char* message_buffer = new char[h.message_size];
+	
+	DWORD dwRead;
+
+	if (!ReadFile(input_handle, message_buffer, h.message_size, &dwRead, nullptr) || !dwRead)
+		return "";
+	
+	string str_message(message_buffer);
+
+	delete[] message_buffer;
+
+	return str_message;
 }
 
 __declspec(dllexport) header __stdcall ReadHeader()
 {
-	AFX_MANAGE_STATE(AfxGetStaticModuleState());
+	HANDLE input_handle = GetStdHandle(STD_INPUT_HANDLE);
 
-	header h;
-	h.thread_id = 0;
-	h.message_size = 0;
-	HANDLE hFile = CreateFileA("myfile.dat", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_WRITE | FILE_SHARE_READ, NULL, OPEN_ALWAYS, 0, 0);
-	if (hFile == INVALID_HANDLE_VALUE)
-		return h;                         // проверяем создание файла
+	header received_header;
+	char* buff_for_header = new char[sizeof(header)];
 
-	HANDLE hFileMap = CreateFileMappingA(hFile, NULL, PAGE_READWRITE, 0, h.message_size + sizeof(header), NULL);
-	if (hFileMap == NULL)                      // проверяем создание файла, отображаемого в память
+	while (true)
 	{
-		CloseHandle(hFile);
-		return h;
+		DWORD dwRead;
+
+		if (!ReadFile(input_handle, buff_for_header, sizeof(header), &dwRead, nullptr) || !dwRead)
+			break;
 	}
+	memcpy(&received_header, buff_for_header, sizeof(header));
+	delete[] buff_for_header;
 
-	char* buff_for_header = (char*)MapViewOfFile(hFileMap, FILE_MAP_ALL_ACCESS, 0, 0, h.message_size + sizeof(header));
-
-	memcpy(&h, buff_for_header, sizeof(header));
-	UnmapViewOfFile(buff_for_header);
-	CloseHandle(hFileMap);
-	CloseHandle(hFile);
-
-	return h;
+	return received_header;
 }
 
 __declspec(dllexport) string __stdcall ReadMessage(header& h)
