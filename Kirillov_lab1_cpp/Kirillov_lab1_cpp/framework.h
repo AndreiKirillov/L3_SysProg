@@ -32,6 +32,7 @@
 #include <memory>
 #include <algorithm>
 #include <mutex>
+#include <shared_mutex>
 #include <thread>
 
 struct ParamsToThread

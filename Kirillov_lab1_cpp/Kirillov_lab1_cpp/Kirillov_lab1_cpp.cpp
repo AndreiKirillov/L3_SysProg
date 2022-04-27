@@ -21,12 +21,17 @@ struct header // заголовок для сообщения
     int message_size;
 };
 
+enum class ThreadType  
+{
+    main, working
+};
+
 // Функции из dll
 extern "C"
 {
     __declspec(dllimport) bool __stdcall SendMappingMessage(void* message, header& h);
 }
-__declspec(dllimport) std::string __stdcall ReadMessage(header& h);
+__declspec(dllimport) std::string __stdcall ReadFromParent(const header& h);
 __declspec(dllimport) header __stdcall ReadHeader();
 
 // Единственный объект приложения
@@ -35,53 +40,30 @@ CWinApp theApp;
 
 using namespace std;
 
-mutex data_mtx;       // будет синхронизировать доступ к отображаемой памяти
+shared_mutex data_mtx;       // будет синхронизировать доступ к анонимному каналу
 mutex console_mtx;    // будет синхронизировать работу консоли
 HANDLE confirm_finish_of_thread_event = CreateEventA(NULL, FALSE, FALSE, NULL);  // будет сообщать о завершении потока
 
-void ReceiveAndProcessMessage(bool thread_type, int thread_id = 0)
+shared_ptr<string> ptr_received_message;
+
+// Функция обработки сообщения в главном потоке
+void ProcessMessage(shared_ptr<string>& message)
 {
-    header h;
-    unique_lock<mutex> lock_data_mtx(data_mtx);          // Синхронизируем чтение из памяти
-    string received_message = ReadMessage(h);
-    lock_data_mtx.unlock();
-    if (thread_type)
-    {
-        lock_guard<mutex> lock_console(console_mtx);
-        if (received_message == "")
-            cout << "MAIN THREAD FAIL: Message wasn't received or empty!" << endl;
-        else
-        {
-            cout << "Main Thread RECEIVED Message" << endl <<
-                "Size: " << h.message_size << endl <<
-                "Message: " << received_message << endl;
-        }
-    }
+    shared_lock<shared_mutex> data_for_reading_lock(data_mtx); // общая блокировка, потоки могут читать данные
+
+    lock_guard<mutex> lock_console(console_mtx);
+    if (message->empty())
+        cout << "MAIN THREAD FAIL: Message wasn't received or empty!" << endl;
     else
     {
-        if (received_message == "")
-        {
-            lock_guard<mutex> lock_console(console_mtx);  
-            cout << "Thread №" + to_string(thread_id) + "FAIL: Message wasn't received or empty!" << endl;
-        }
-        else
-        {
-            console_mtx.lock();
-            cout << "Thread №" + to_string(thread_id) + " RECEIVED Message" << endl;
-            console_mtx.unlock();
-            ofstream outfile;
-            outfile.open("C:/repository/SysProg/L3_SysProg/OutputData/" + to_string(thread_id) + ".txt");
-            if (outfile.is_open())
-            {
-                outfile << "Message size: " << to_string(h.message_size) << endl;
-                outfile << "Message:" << endl << received_message;
-                outfile.close();
-            }
-        }
+        cout << "Main Thread RECEIVED Message" << endl <<
+            "Size: " << message->size() << endl <<
+            "Message: " << *message << endl;
     }
 }
 
-void ThreadFunction(int thread_id, HANDLE finish_event, HANDLE receive_msg_event) // Функция выполнения в потоке
+// Функция выполнения в потоке
+void ThreadFunction(int thread_id, HANDLE finish_event, HANDLE receive_msg_event, weak_ptr<string>&& ptr_to_message)
 {
     console_mtx.lock();
     cout << "Thread №" + to_string(thread_id) + " START" << endl;
@@ -95,7 +77,40 @@ void ThreadFunction(int thread_id, HANDLE finish_event, HANDLE receive_msg_event
         {
         case 0:// событие получения сообщения
         {
-            ReceiveAndProcessMessage(_WORKING, thread_id);
+            shared_lock<shared_mutex> data_for_reading_lock(data_mtx); // общая блокировка, данные можно только читать из потоков
+
+            auto received_message = ptr_to_message.lock(); // пытаемся получить доступ к сообщению из weak_ptr
+
+            if(received_message == nullptr)  // если указатель оказался висячим и данные удалены
+            {
+                lock_guard<mutex> lock_console(console_mtx);
+                cout << "ERROR: Thread №" + to_string(thread_id) + " can't read message, because the message was deleted" << endl;
+            }
+            else  
+            {
+                if(received_message->empty())  
+                {
+                    lock_guard<mutex> lock_console(console_mtx);
+                    cout << "ERROR: Thread №" + to_string(thread_id) + " can't read message is empty" << endl;
+                    
+                }
+                else
+                {
+                    unique_lock<mutex> console_lock(console_mtx);
+                    cout << "Thread №" + to_string(thread_id) + " RECEIVED Message" << endl;
+                    console_lock.unlock();
+
+                    // вывод в файл
+                    ofstream outfile;
+                    outfile.open("C:/repository/SysProg/L3_SysProg/OutputData/" + to_string(thread_id) + ".txt");
+                    if (outfile.is_open())
+                    {
+                        outfile << "Message size: " << received_message->size() << endl;
+                        outfile << "Message:" << endl << *received_message;
+                        outfile.close();
+                    }
+                }
+            }
         }
         break;
 
@@ -136,6 +151,8 @@ int main()
         else
         {
             setlocale(LC_ALL, "Russian");
+
+            ptr_received_message = make_shared<string>(); // память под будущие сообщения
 
             // список программных событий
             list<HANDLE> kernel_objects; 
@@ -182,8 +199,10 @@ int main()
                         break;
                     }
 
+                    std::weak_ptr<string> wptr_to_message(ptr_received_message);
+
                     // инициализируем объект реальным потоком
-                    new_thread->Init(std::thread(ThreadFunction, thread_id, thread_finish_event, thread_msg_event));
+                    new_thread->Init(std::thread(ThreadFunction, thread_id, thread_finish_event, thread_msg_event, std::move(wptr_to_message)));
                     new_thread->SetID(thread_id);
                     new_thread->SetFinishEvent(thread_finish_event);
                     new_thread->SetMessageEvent(thread_msg_event);
@@ -215,21 +234,28 @@ int main()
 
                 case 2:
                 {
-                    header h = ReadHeader();    // читаем заголовок, чтобы узнать, какой поток должен читать сообщение
-                    if (h.message_size != 0)    
+                    unique_lock<shared_mutex> writing_data_lock(data_mtx); // монопольный захват мьютекса для записи нового сообщения 
+                                                                           // в этот момент потоки с общей блокировкой не смогут читать
+
+                    header msg_header = ReadHeader();    // читаем заголовок, чтобы узнать, какой поток должен читать сообщение
+                    if (msg_header.message_size != 0)
                     {
-                        switch (h.thread_id)
+
+                        *ptr_received_message = ReadFromParent(msg_header);  // читаем сообщение из анонимного канала
+                        writing_data_lock.unlock();                          // освобождаем монопольный захват
+
+                        switch (msg_header.thread_id)
                         {
                         case -1:                               // Чтение из всех потоков
                         {
-                            ReceiveAndProcessMessage(_MAIN);
+                            ProcessMessage(ptr_received_message);
                             threads_storage.ActionAll();
                         }
                         break;
 
                         case 0:                                // Чтение из главного потока
                         {
-                            ReceiveAndProcessMessage(_MAIN);
+                            ProcessMessage(ptr_received_message);
                         }
                         break;
 
@@ -237,7 +263,7 @@ int main()
                         {
                             try
                             {
-                                threads_storage.ActionThreadByID(h.thread_id);
+                                threads_storage.ActionThreadByID(msg_header.thread_id);
                             }
                             catch (exception ex)             // вдруг нет потока с данным id
                             {

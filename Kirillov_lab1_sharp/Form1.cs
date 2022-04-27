@@ -33,6 +33,12 @@ namespace Kirillov_lab1_sharp
         [DllImport("FileMapping.dll", CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
         private static extern bool CreateProcessWithPipe(StringBuilder process_name);
 
+        [DllImport("FileMapping.dll", CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+        private static extern bool WriteToChild(StringBuilder message, ref header h);
+
+        [DllImport("FileMapping.dll", CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+        private static extern StringBuilder ReadFromChild(StringBuilder message, ref  header h);
+
         private Process child_process = null;
         private int count_threads = 0;
         private System.Threading.EventWaitHandle stopEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "CloseThread");
@@ -71,6 +77,7 @@ namespace Kirillov_lab1_sharp
                 listbox_threads.Items.Add("Все потоки");
                 listbox_threads.Items.Add("Главный поток");
                 int nThreads = Convert.ToInt32(textBox_Nthreads.Text);
+                //StringBuilder s = new StringBuilder(ReadFromChild)
                 if (confirmEvent.WaitOne())
                     if (nThreads > 0)
                     {
@@ -148,13 +155,14 @@ namespace Kirillov_lab1_sharp
                     return;
                 }
 
-                IntPtr message = Marshal.StringToHGlobalAnsi(textBox_Message.Text);
+                //IntPtr message = Marshal.StringToHGlobalAnsi(textBox_Message.Text);
+                StringBuilder message = new StringBuilder(textBox_Message.Text);
                 header h = new header();
                 h.thread_id = listbox_threads.SelectedIndex - 1;
-                string msg = Marshal.PtrToStringAnsi(message);
-                h.message_size = msg.Length + 1;
+                //string msg = Marshal.PtrToStringAnsi(message);
+                h.message_size = message.Length;
 
-                if (!SendMappingMessage(message, ref h))
+                if (!WriteToChild(message, ref h))
                 {
                     MessageBox.Show("Внимание! Не удалось отправить сообщения!");
                     return;

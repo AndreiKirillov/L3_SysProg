@@ -163,36 +163,43 @@ extern "C"
 	__declspec(dllexport) bool __stdcall WriteToChild(const char* message, header& h)
 	{
 		DWORD dwWrite;
-		if(!WriteFile(hWriteToChild, &h, sizeof(header), &dwWrite, nullptr))
+
+		++h.message_size; // учитываем нулевой байт в конце строки
+
+		if(!WriteFile(hWriteToChild, &h, sizeof(header), &dwWrite, nullptr)) // пишем заголовок
 			return false;
 
-		if (!WriteFile(hWriteToChild, message, strlen(message), &dwWrite, nullptr))
+		if (!WriteFile(hWriteToChild, message, strlen(message)+1, &dwWrite, nullptr)) // пишем тело сообщения
 			return false;
 
 		return true;
 	}
 
+	__declspec(dllexport) const char* __stdcall ReadFromChild(const header& h)
+	{
+		if (h.message_size == 0)
+			return nullptr;
+
+		HANDLE input_handle = GetStdHandle(STD_ERROR_HANDLE);
+
+		char* message_buffer = new char[h.message_size];
+
+		DWORD dwRead;
+
+		// Чтение из анонимного канала
+		if (!ReadFile(input_handle, message_buffer, h.message_size, &dwRead, nullptr) || !dwRead)
+			return nullptr;
+
+		string str_message(message_buffer);
+
+		delete[] message_buffer;
+
+		return str_message.c_str();
+	}
+
 }
 
-// Функция чтения сообщения от родительского процесса
-__declspec(dllexport) string __stdcall ReadFromParent(header& h)
-{
-	HANDLE input_handle = GetStdHandle(STD_INPUT_HANDLE);
-	
-	char* message_buffer = new char[h.message_size];
-	
-	DWORD dwRead;
-
-	if (!ReadFile(input_handle, message_buffer, h.message_size, &dwRead, nullptr) || !dwRead)
-		return "";
-	
-	string str_message(message_buffer);
-
-	delete[] message_buffer;
-
-	return str_message;
-}
-
+// Функция чтения заголовка сообщения
 __declspec(dllexport) header __stdcall ReadHeader()
 {
 	HANDLE input_handle = GetStdHandle(STD_INPUT_HANDLE);
@@ -204,13 +211,54 @@ __declspec(dllexport) header __stdcall ReadHeader()
 	{
 		DWORD dwRead;
 
-		if (!ReadFile(input_handle, buff_for_header, sizeof(header), &dwRead, nullptr) || !dwRead)
+		// читаем заголовок
+		if (ReadFile(input_handle, buff_for_header, sizeof(header), &dwRead, nullptr))
 			break;
 	}
+
 	memcpy(&received_header, buff_for_header, sizeof(header));
 	delete[] buff_for_header;
 
 	return received_header;
+}
+
+// Функция чтения сообщения от родительского процесса
+__declspec(dllexport) string __stdcall ReadFromParent(const header& h)
+{
+	if (h.message_size == 0)
+		return "";
+
+	HANDLE input_handle = GetStdHandle(STD_INPUT_HANDLE);  
+	
+	char* message_buffer = new char[h.message_size];
+	
+	DWORD dwRead;
+
+	// Чтение из анонимного канала
+	if (!ReadFile(input_handle, message_buffer, h.message_size, &dwRead, nullptr) || !dwRead)
+		return "";
+	
+	string str_message(message_buffer);
+
+	delete[] message_buffer;
+
+	return str_message;
+}
+
+// Функция отправки сообщения родительскому процессу
+__declspec(dllexport) bool __stdcall WriteToParent(const char* message, header& h)
+{
+	DWORD dwWrite;
+
+	++h.message_size; // учитываем нулевой байт в конце строки
+
+	if (!WriteFile(hChildWrite, &h, sizeof(header), &dwWrite, nullptr)) // пишем заголовок
+		return false;
+
+	if (!WriteFile(hChildWrite, message, strlen(message) + 1, &dwWrite, nullptr)) // пишем тело сообщения
+		return false;
+
+	return true;
 }
 
 __declspec(dllexport) string __stdcall ReadMessage(header& h)
