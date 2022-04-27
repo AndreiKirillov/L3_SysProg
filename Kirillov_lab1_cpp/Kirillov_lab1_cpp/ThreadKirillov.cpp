@@ -17,9 +17,8 @@ ThreadKirillov::~ThreadKirillov() // ¬ деструкторе освобождаем ресурсы потока
 	if (_receive_msg_event != nullptr)
 		CloseHandle(_receive_msg_event);
 
-	console_mtx.lock();
+	std::lock_guard<std::mutex> console_lock(console_mtx);
 	std::cout << "ID " << std::to_string(_id) << " DESTRUCTOR" << std::endl;
-	console_mtx.unlock();
 }
 
 void ThreadKirillov::SetID(int id)

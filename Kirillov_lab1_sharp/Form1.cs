@@ -18,6 +18,8 @@ namespace Kirillov_lab1_sharp
     public struct header            
     {
         [MarshalAs(UnmanagedType.I4)]
+        public int event_code;
+        [MarshalAs(UnmanagedType.I4)]
         public int thread_id;
         [MarshalAs(UnmanagedType.I4)]
         public int message_size;
@@ -37,7 +39,7 @@ namespace Kirillov_lab1_sharp
         private static extern bool WriteToChild(StringBuilder message, ref header h);
 
         [DllImport("FileMapping.dll", CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
-        private static extern StringBuilder ReadFromChild(StringBuilder message, ref  header h);
+        private static extern int ReadFromChild();
 
         private Process child_process = null;
         private int count_threads = 0;
@@ -50,6 +52,17 @@ namespace Kirillov_lab1_sharp
         public Form1()
         {
             InitializeComponent();
+            Thread checker = new Thread(CheckingConfirms);
+        }
+
+        void CheckingConfirms()
+        {
+            while(true)
+            {
+                int code = ReadFromChild();
+                if(code == 1)
+                    MessageBox.Show("Подтверждение пришло!");
+            }
         }
 
         private void btn_start_Click(object sender, EventArgs e)
@@ -77,17 +90,22 @@ namespace Kirillov_lab1_sharp
                 listbox_threads.Items.Add("Все потоки");
                 listbox_threads.Items.Add("Главный поток");
                 int nThreads = Convert.ToInt32(textBox_Nthreads.Text);
-                //StringBuilder s = new StringBuilder(ReadFromChild)
                 if (confirmEvent.WaitOne())
                     if (nThreads > 0)
                     {
                         for (int i = 0; i < nThreads; i++)
                         {
+                            //WriteToChild()
                             startEvent.Set();
                             if(confirmEvent.WaitOne(-1))
                                 listbox_threads.Items.Add($"{++count_threads}-й поток");
                         }
                     }
+                //int confirm_code = ReadFromChild();
+                //if (confirm_code == 1)
+                //    MessageBox.Show("Подтверждение открытия приложения!");
+                //else
+                //    MessageBox.Show("Ошибка! Не удалось открыть консольное приложение!");
             }
             else
             {
@@ -116,7 +134,7 @@ namespace Kirillov_lab1_sharp
             {
                 stopEvent.Set();
                 if(count_threads == 0)
-                {
+                {                                      // событие закрытия дочерней программы
                     if (closeProgrammEvent.WaitOne())
                     {
                         listbox_threads.Items.Clear();
@@ -125,7 +143,7 @@ namespace Kirillov_lab1_sharp
                         child_process = null;
                     }
                 }
-                else
+                else                                  // лишь завершение потока
                 {
                     if (confirmEvent.WaitOne())
                     {
@@ -155,11 +173,9 @@ namespace Kirillov_lab1_sharp
                     return;
                 }
 
-                //IntPtr message = Marshal.StringToHGlobalAnsi(textBox_Message.Text);
                 StringBuilder message = new StringBuilder(textBox_Message.Text);
                 header h = new header();
                 h.thread_id = listbox_threads.SelectedIndex - 1;
-                //string msg = Marshal.PtrToStringAnsi(message);
                 h.message_size = message.Length;
 
                 if (!WriteToChild(message, ref h))

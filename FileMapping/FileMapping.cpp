@@ -68,6 +68,7 @@ BOOL CFileMappingApp::InitInstance()
 // структура для заголовка сообщения
 struct header    
 {
+	int event_code;
 	int thread_id;
 	int message_size;
 };
@@ -164,37 +165,36 @@ extern "C"
 	{
 		DWORD dwWrite;
 
-		++h.message_size; // учитываем нулевой байт в конце строки
+		if (h.message_size > 0)
+		{
+			++h.message_size; // учитываем нулевой байт в конце строки
 
-		if(!WriteFile(hWriteToChild, &h, sizeof(header), &dwWrite, nullptr)) // пишем заголовок
+			if (!WriteFile(hWriteToChild, &h, sizeof(header), &dwWrite, nullptr) || dwWrite == 0) // пишем заголовок
+				return false;
+
+			if (!WriteFile(hWriteToChild, message, strlen(message) + 1, &dwWrite, nullptr) || dwWrite == 0) // пишем тело сообщения
+				return false;
+
+			return true;
+		}
+		else
 			return false;
-
-		if (!WriteFile(hWriteToChild, message, strlen(message)+1, &dwWrite, nullptr)) // пишем тело сообщения
-			return false;
-
-		return true;
 	}
 
-	__declspec(dllexport) const char* __stdcall ReadFromChild(const header& h)
+	__declspec(dllexport) int __stdcall ReadFromChild()
 	{
-		if (h.message_size == 0)
-			return nullptr;
-
 		HANDLE input_handle = GetStdHandle(STD_ERROR_HANDLE);
-
-		char* message_buffer = new char[h.message_size];
+		if (input_handle == INVALID_HANDLE_VALUE)
+			return -1;
 
 		DWORD dwRead;
+		int message = -1;
 
 		// Чтение из анонимного канала
-		if (!ReadFile(input_handle, message_buffer, h.message_size, &dwRead, nullptr) || !dwRead)
-			return nullptr;
+		if (!ReadFile(input_handle, &message, sizeof(int), &dwRead, nullptr) || dwRead == 0)
+			return message;
 
-		string str_message(message_buffer);
-
-		delete[] message_buffer;
-
-		return str_message.c_str();
+		return message;
 	}
 
 }
@@ -202,22 +202,17 @@ extern "C"
 // Функция чтения заголовка сообщения
 __declspec(dllexport) header __stdcall ReadHeader()
 {
+	header received_header{ -1,-1,-1 };
+
 	HANDLE input_handle = GetStdHandle(STD_INPUT_HANDLE);
+	if (input_handle == INVALID_HANDLE_VALUE)
+		return received_header;
 
-	header received_header;
-	char* buff_for_header = new char[sizeof(header)];
+	DWORD dwRead;
 
-	while (true)
-	{
-		DWORD dwRead;
-
-		// читаем заголовок
-		if (ReadFile(input_handle, buff_for_header, sizeof(header), &dwRead, nullptr))
-			break;
-	}
-
-	memcpy(&received_header, buff_for_header, sizeof(header));
-	delete[] buff_for_header;
+	// читаем заголовок
+	if (!ReadFile(input_handle, &received_header, sizeof(header), &dwRead, nullptr) || dwRead == 0)
+		return header{ -1,-1,-1 };
 
 	return received_header;
 }
@@ -228,14 +223,16 @@ __declspec(dllexport) string __stdcall ReadFromParent(const header& h)
 	if (h.message_size == 0)
 		return "";
 
-	HANDLE input_handle = GetStdHandle(STD_INPUT_HANDLE);  
+	HANDLE input_handle = GetStdHandle(STD_INPUT_HANDLE); // получаем дескриптор ввода, который отвечает за прием сообщения
+	if (input_handle == INVALID_HANDLE_VALUE)
+		return "";
 	
 	char* message_buffer = new char[h.message_size];
 	
 	DWORD dwRead;
 
 	// Чтение из анонимного канала
-	if (!ReadFile(input_handle, message_buffer, h.message_size, &dwRead, nullptr) || !dwRead)
+	if (!ReadFile(input_handle, message_buffer, h.message_size, &dwRead, nullptr) || dwRead == 0)
 		return "";
 	
 	string str_message(message_buffer);
@@ -246,19 +243,28 @@ __declspec(dllexport) string __stdcall ReadFromParent(const header& h)
 }
 
 // Функция отправки сообщения родительскому процессу
-__declspec(dllexport) bool __stdcall WriteToParent(const char* message, header& h)
+__declspec(dllexport) bool __stdcall WriteToParent(int message_code)
 {
+	// Получаем дескриптор ошибки, который отвечает за отправку сообщений в родительский процесс
+	/*HANDLE output_handle = GetStdHandle(STD_ERROR_HANDLE);  
+	if (output_handle == INVALID_HANDLE_VALUE) 
+		return false;*/
+
 	DWORD dwWrite;
 
-	++h.message_size; // учитываем нулевой байт в конце строки
-
-	if (!WriteFile(hChildWrite, &h, sizeof(header), &dwWrite, nullptr)) // пишем заголовок
-		return false;
-
-	if (!WriteFile(hChildWrite, message, strlen(message) + 1, &dwWrite, nullptr)) // пишем тело сообщения
+	if (!WriteFile(hChildWrite, &message_code, sizeof(int), &dwWrite, nullptr) || dwWrite == 0) 
 		return false;
 
 	return true;
+}
+
+// Освобождение ресурсов анонимного канала
+__declspec(dllexport) void __stdcall ClosePipeResources()
+{
+	CloseHandle(hWriteToChild);
+	CloseHandle(hChildRead);
+	CloseHandle(hChildWrite);
+	CloseHandle(hReadFromChild);
 }
 
 __declspec(dllexport) string __stdcall ReadMessage(header& h)

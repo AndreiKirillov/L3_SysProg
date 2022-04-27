@@ -34,10 +34,3 @@
 #include <mutex>
 #include <shared_mutex>
 #include <thread>
-
-struct ParamsToThread
-{
-	int id;
-	HANDLE control_event;
-	HANDLE receive_msg_event;
-};

@@ -17,13 +17,9 @@
 
 struct header // заголовок для сообщения
 {
+    int event_code;
     int thread_id;
     int message_size;
-};
-
-enum class ThreadType  
-{
-    main, working
 };
 
 // Функции из dll
@@ -33,6 +29,8 @@ extern "C"
 }
 __declspec(dllimport) std::string __stdcall ReadFromParent(const header& h);
 __declspec(dllimport) header __stdcall ReadHeader();
+__declspec(dllimport) bool __stdcall WriteToParent(int message_code);
+__declspec(dllexport) void __stdcall ClosePipeResources();
 
 // Единственный объект приложения
 
@@ -177,10 +175,16 @@ int main()
             HANDLE hControlEvents[4] = { create_thread_event, close_thread_event, message_event, close_programm_event };
 
             ThreadStorage threads_storage;
+
+            //WriteToParent(1);
+
             SetEvent(confirm_event);   // подтвердение запуска приложения
             
             while (true)
             {
+                //header msg_header = ReadHeader();
+                
+
                 int event_index = WaitForMultipleObjects(4, hControlEvents, FALSE, INFINITE) - WAIT_OBJECT_0; // Ждём событие от 
                                                                                                               // главной программы
                 switch (event_index)
@@ -199,7 +203,7 @@ int main()
                         break;
                     }
 
-                    std::weak_ptr<string> wptr_to_message(ptr_received_message);
+                    std::weak_ptr<string> wptr_to_message(ptr_received_message); // этот указатель на сообщение из канала передадим в поток
 
                     // инициализируем объект реальным потоком
                     new_thread->Init(std::thread(ThreadFunction, thread_id, thread_finish_event, thread_msg_event, std::move(wptr_to_message)));
@@ -227,6 +231,7 @@ int main()
                         threads_storage.KillAndReleaseAll();
                         CloseAllObjects(kernel_objects);
                         CloseHandle(confirm_finish_of_thread_event);
+                        ClosePipeResources();
                         return 0;
                     }
                 }
@@ -234,12 +239,11 @@ int main()
 
                 case 2:
                 {
-                    unique_lock<shared_mutex> writing_data_lock(data_mtx); // монопольный захват мьютекса для записи нового сообщения 
-                                                                           // в этот момент потоки с общей блокировкой не смогут читать
-
                     header msg_header = ReadHeader();    // читаем заголовок, чтобы узнать, какой поток должен читать сообщение
                     if (msg_header.message_size != 0)
                     {
+                        unique_lock<shared_mutex> writing_data_lock(data_mtx); // монопольный захват мьютекса для записи нового сообщения 
+                                                                          // в этот момент потоки с общей блокировкой не смогут читать
 
                         *ptr_received_message = ReadFromParent(msg_header);  // читаем сообщение из анонимного канала
                         writing_data_lock.unlock();                          // освобождаем монопольный захват
@@ -285,6 +289,7 @@ int main()
                     threads_storage.KillAndReleaseAll();
                     CloseAllObjects(kernel_objects);
                     CloseHandle(confirm_finish_of_thread_event);
+                    ClosePipeResources();
                     return 0;
                 }
                 }
